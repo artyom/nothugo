@@ -346,10 +346,19 @@ func serve(addr, dir string) error {
 		return err
 	}
 	defer ln.Close()
+	fileServer := http.FileServer(http.Dir(dir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; preload")
+		}
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		fileServer.ServeHTTP(w, r)
+	})
 	log.Printf("serving on http://%s/", ln.Addr())
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      http.FileServer(http.Dir(dir)),
+		Handler:      handler,
 		ReadTimeout:  time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
