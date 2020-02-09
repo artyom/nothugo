@@ -1,4 +1,4 @@
-Commant nothugo is a basic static site generator, taking *.md files as its
+Command nothugo is a basic static site generator, taking *.md files as its
 input. Its main focus is simplicity and not getting in a way of existing file
 hierarchies.
 
