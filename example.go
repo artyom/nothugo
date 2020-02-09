@@ -144,7 +144,19 @@ discovered from the first \<h1\> element, or derived from the file name.
 `
 
 // templates/default.html
-const exampleTemplate = `<!DOCTYPE html><head><meta charset="utf-8"><title>{{ .Title }}</title></head>
+const exampleTemplate = `<!DOCTYPE html><head><meta charset="utf-8"><title>{{ .Title }}</title>
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-size: 1rem;
+    line-height: 170%;
+    max-width: 45em;
+    margin: auto;
+    padding-right: 1em;
+    padding-left: 1em;
+}
+</style>
+</head>
 <body>{{ .Content }}
 
 {{/*
