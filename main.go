@@ -339,7 +339,7 @@ func renderIndex(tpl *template.Template, convert convertFunc, dir string, pages,
 		}
 		readme = template.HTML(out.Bytes())
 	}
-	title := "Category index"
+	title := fmt.Sprintf("%s index", filepath.Base(dir))
 	if readme != "" {
 		if s, err := firstHeading([]byte(readme)); err == nil && s != "" {
 			title = s
