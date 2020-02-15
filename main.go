@@ -115,9 +115,14 @@ func run(args runArgs) error {
 	if err := args.validate(); err != nil {
 		return err
 	}
-	tpl, err := template.ParseGlob(filepath.Join(args.TemplatesDir, "*.html"))
+	pat := filepath.Join(args.TemplatesDir, "*.html")
+	tpl, err := template.ParseGlob(pat)
 	if err != nil {
 		return fmt.Errorf("parsing templates from %q: %w", args.TemplatesDir, err)
+	}
+	mtime, err := latestMtime(pat)
+	if err != nil {
+		return err
 	}
 
 	md := goldmark.New(
@@ -193,7 +198,7 @@ func run(args runArgs) error {
 			return copyFile(dst, path)
 		}
 
-		title, err := renderFile(tpl, convert, dst, path)
+		title, err := renderFile(tpl, convert, mtime, dst, path)
 		if err != nil {
 			return err
 		}
@@ -257,13 +262,22 @@ func copyFile(dst, src string) error {
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return err
 	}
-	return dstFile.Close()
+	if err := dstFile.Close(); err != nil {
+		return err
+	}
+	if fi, err := srcFile.Stat(); err == nil {
+		mtime := fi.ModTime()
+		_ = os.Chtimes(dst, mtime, mtime)
+	}
+	return nil
 }
 
 // renderFile converts Markdown file src into HTML using convert function, then
-// renders it to dst file using template tpl. It returne title of rendered page
-// and error, if any.
-func renderFile(tpl *template.Template, convert convertFunc, dst, src string) (string, error) {
+// renders it to dst file using template tpl. It returns title of rendered page
+// and error, if any. After writing to dst, function sets modification time of
+// dst either to mtime argument or modification time of src, whichever is most
+// recent.
+func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, dst, src string) (string, error) {
 	if src == dst {
 		return "", errors.New("source and destination cannot be the same")
 	}
@@ -291,7 +305,16 @@ func renderFile(tpl *template.Template, convert convertFunc, dst, src string) (s
 	if err := os.MkdirAll(filepath.Dir(dst), 0777); err != nil {
 		return "", err
 	}
-	return title, ioutil.WriteFile(dst, out.Bytes(), 0666)
+	if err := ioutil.WriteFile(dst, out.Bytes(), 0666); err != nil {
+		return "", err
+	}
+	if fi, err := f.Stat(); err == nil {
+		if m := fi.ModTime(); m.After(mtime) {
+			mtime = m
+		}
+		_ = os.Chtimes(dst, mtime, mtime)
+	}
+	return title, nil
 }
 
 // renderIndex writes index.html file to directory dir. If an element of pages
@@ -402,6 +425,26 @@ func cmarkConvert(dst io.Writer, src io.Reader) error {
 	}
 	_, err = dst.Write(b)
 	return err
+}
+
+// latestMtime stats each file matching pattern pat and returns the latest
+// mtime of them all.
+func latestMtime(pat string) (time.Time, error) {
+	names, err := filepath.Glob(pat)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var mtime time.Time
+	for _, name := range names {
+		fi, err := os.Stat(name)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if m := fi.ModTime(); m.After(mtime) {
+			mtime = m
+		}
+	}
+	return mtime, nil
 }
 
 func fileNameToTitle(name string) string {
