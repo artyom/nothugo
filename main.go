@@ -40,6 +40,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -69,6 +70,7 @@ func main() {
 	var err error
 	switch flag.Arg(0) {
 	case "serve":
+		_ = mime.AddExtensionType(".md", "text/html") // override local mime db
 		err = serve(args.Addr, args.OutputDir)
 	case "example":
 		err = generateExampleContent(args.InputDir, args.TemplatesDir)
