@@ -109,6 +109,19 @@ Notice that all files at the destination keep their original names, even though
 files with .md suffix are now actually HTML documents. It enables having
 relative cross-document links in existing Markdown document corpus and is
 compatible with how Github renders a preview of .md files.
+
+If you prefer to have resulting rendered files to have .html suffix instead of
+.md, then run render subcommand with -html flag. In this case the above example
+will have the following layout after rendering:
+
+    index.html
+    README.html
+    traversal.html
+    Templating/
+    index.html
+        about.html
+    media/
+        logo.png
 `
 
 // Template/about.md

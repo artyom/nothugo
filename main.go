@@ -9,7 +9,7 @@
 // render:
 //
 // In this mode program recursively walks input directory (-src), renders *.md
-// files to HTML, writin output to the output directory (-dst), keeping the
+// files to HTML, writing result to the output directory (-dst), keeping the
 // same file tree structure. Files with names that don't match *.md pattern are
 // either hard-linked (if possible), or copied to the destination directory.
 // Non-regular files, or files/directories with names starting with "." (unix
@@ -65,6 +65,7 @@ func main() {
 	flag.StringVar(&args.OutputDir, "dst", args.OutputDir, "destination directory to write rendered files")
 	flag.StringVar(&args.TemplatesDir, "templates", args.TemplatesDir, "directory with .html templates")
 	flag.StringVar(&args.Addr, "addr", args.Addr, "host:port to listen when run in serve mode")
+	flag.BoolVar(&args.SuffixHTML, "html", false, "save rendered files with .html suffix instead of .md")
 	flag.Parse()
 	log.SetFlags(0)
 	var err error
@@ -91,6 +92,7 @@ type runArgs struct {
 	OutputDir    string
 	TemplatesDir string
 	Addr         string // only for serve
+	SuffixHTML   bool   // whether to create destination files with .html suffix
 }
 
 func (args *runArgs) validate() error {
@@ -200,7 +202,11 @@ func run(args runArgs) error {
 			return copyFile(dst, path)
 		}
 
-		title, err := renderFile(tpl, convert, mtime, dst, path)
+		if args.SuffixHTML {
+			base = strings.TrimSuffix(base, mdSuffix) + htmlSuffix
+			dst = strings.TrimSuffix(dst, mdSuffix) + htmlSuffix
+		}
+		title, err := renderFile(tpl, convert, mtime, args.SuffixHTML, dst, path)
 		if err != nil {
 			return err
 		}
@@ -217,7 +223,7 @@ func run(args runArgs) error {
 		if _, ok := skipIndex[dir]; ok {
 			continue
 		}
-		if err := renderIndex(tpl, convert, dir, res.pages, res.categories); err != nil {
+		if err := renderIndex(tpl, convert, dir, args.SuffixHTML, res.pages, res.categories); err != nil {
 			return err
 		}
 	}
@@ -279,7 +285,7 @@ func copyFile(dst, src string) error {
 // and error, if any. After writing to dst, function sets modification time of
 // dst either to mtime argument or modification time of src, whichever is most
 // recent.
-func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, dst, src string) (string, error) {
+func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, withLinkRewrite bool, dst, src string) (string, error) {
 	if src == dst {
 		return "", errors.New("source and destination cannot be the same")
 	}
@@ -291,6 +297,16 @@ func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, ds
 	out := new(bytes.Buffer)
 	if err := convert(out, f); err != nil {
 		return "", err
+	}
+	if withLinkRewrite {
+		b, err := rewriteLinks(out.Bytes())
+		if err != nil {
+			return "", err
+		}
+		out.Reset()
+		out.Write(b)
+		// TODO: consolidate this with the call to firstHeading below to reduce
+		// duplicate html parsing
 	}
 	title := fileNameToTitle(filepath.Base(dst))
 	if s, err := firstHeading(out.Bytes()); err == nil && s != "" {
@@ -323,12 +339,16 @@ func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, ds
 // describes "README.md" file, this file is rendered using convert function to
 // HTML format. This HTML, and every other element from pages is then used to
 // render template tpl.
-func renderIndex(tpl *template.Template, convert convertFunc, dir string, pages, categories []pageMeta) error {
+func renderIndex(tpl *template.Template, convert convertFunc, dir string, withLinkRewrite bool, pages, categories []pageMeta) error {
 	var readme template.HTML
 	out := new(bytes.Buffer)
 	nonReadmePages := make([]pageMeta, 0, len(pages))
 	for _, meta := range pages {
-		if meta.Dst != "README.md" || readme != "" {
+		readmeName := "README.md"
+		if withLinkRewrite {
+			readmeName = "README.html"
+		}
+		if meta.Dst != readmeName || readme != "" {
 			nonReadmePages = append(nonReadmePages, meta)
 			continue
 		}
@@ -339,7 +359,13 @@ func renderIndex(tpl *template.Template, convert convertFunc, dir string, pages,
 		if err := convert(out, bytes.NewReader(b)); err != nil {
 			return err
 		}
-		readme = template.HTML(out.Bytes())
+		b = out.Bytes()
+		if withLinkRewrite {
+			if b, err = rewriteLinks(b); err != nil {
+				return err
+			}
+		}
+		readme = template.HTML(b)
 	}
 	title := fmt.Sprintf("%s index", filepath.Base(dir))
 	if readme != "" {
@@ -459,6 +485,7 @@ func fileNameToTitle(name string) string {
 var repl = strings.NewReplacer("-", " ")
 
 const mdSuffix = ".md"
+const htmlSuffix = ".html"
 const gfmBinary = "cmark-gfm" // https://github.com/github/cmark-gfm binary
 
 const shortUsage = `Usage: nothugo [flags] [mode]
