@@ -46,7 +46,6 @@ func rewriteLinks(b []byte) ([]byte, error) {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walkFn(c)
 		}
-		return
 	}
 	walkFn(root)
 	out := new(bytes.Buffer)

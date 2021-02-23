@@ -38,7 +38,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
+	"io/fs"
 	"log"
 	"mime"
 	"net"
@@ -119,12 +119,11 @@ func run(args runArgs) error {
 	if err := args.validate(); err != nil {
 		return err
 	}
-	pat := filepath.Join(args.TemplatesDir, "*.html")
-	tpl, err := template.ParseGlob(pat)
+	tpl, err := template.ParseFS(os.DirFS(args.TemplatesDir), "*.html")
 	if err != nil {
 		return fmt.Errorf("parsing templates from %q: %w", args.TemplatesDir, err)
 	}
-	mtime, err := latestMtime(pat)
+	mtime, err := latestMtime(os.DirFS(args.TemplatesDir), "*.html")
 	if err != nil {
 		return err
 	}
@@ -134,7 +133,7 @@ func run(args runArgs) error {
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 	)
 	convert := func(w io.Writer, r io.Reader) error {
-		src, err := ioutil.ReadAll(r)
+		src, err := io.ReadAll(r)
 		if err != nil {
 			return err
 		}
@@ -154,19 +153,19 @@ func run(args runArgs) error {
 	// *destination* directory.
 	skipIndex := make(map[string]struct{})
 
-	walkFunc := func(path string, info os.FileInfo, err error) error {
+	walkFunc := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		base := filepath.Base(path)
-		if info.IsDir() && len(base) > 1 && strings.HasPrefix(base, ".") {
+		base := d.Name()
+		if d.IsDir() && len(base) > 1 && strings.HasPrefix(base, ".") {
 			// skip hidden directories
 			return filepath.SkipDir
 		}
-		if info.IsDir() && (path == args.TemplatesDir || path == args.OutputDir) {
+		if d.IsDir() && (path == args.TemplatesDir || path == args.OutputDir) {
 			return filepath.SkipDir
 		}
-		if !info.Mode().IsRegular() || strings.HasPrefix(base, ".") {
+		if !d.Type().IsRegular() || strings.HasPrefix(base, ".") {
 			// skip non-regular or hidden files
 			return nil
 		}
@@ -215,7 +214,7 @@ func run(args runArgs) error {
 		dirsIndex[key] = res
 		return nil
 	}
-	if err := filepath.Walk(args.InputDir, walkFunc); err != nil {
+	if err := filepath.WalkDir(args.InputDir, walkFunc); err != nil {
 		return nil
 	}
 
@@ -323,7 +322,7 @@ func renderFile(tpl *template.Template, convert convertFunc, mtime time.Time, wi
 	if err := os.MkdirAll(filepath.Dir(dst), 0777); err != nil {
 		return "", err
 	}
-	if err := ioutil.WriteFile(dst, out.Bytes(), 0666); err != nil {
+	if err := os.WriteFile(dst, out.Bytes(), 0666); err != nil {
 		return "", err
 	}
 	if fi, err := f.Stat(); err == nil {
@@ -352,7 +351,7 @@ func renderIndex(tpl *template.Template, convert convertFunc, dir string, withLi
 			nonReadmePages = append(nonReadmePages, meta)
 			continue
 		}
-		b, err := ioutil.ReadFile(meta.src)
+		b, err := os.ReadFile(meta.src)
 		if err != nil {
 			return err
 		}
@@ -383,7 +382,7 @@ func renderIndex(tpl *template.Template, convert convertFunc, dir string, withLi
 	if err := tpl.Execute(out, page); err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filepath.Join(dir, "index.html"), out.Bytes(), 0666)
+	return os.WriteFile(filepath.Join(dir, "index.html"), out.Bytes(), 0666)
 }
 
 // serve runs HTTP server listening on addr that serves static files from dir
@@ -457,14 +456,14 @@ func cmarkConvert(dst io.Writer, src io.Reader) error {
 
 // latestMtime stats each file matching pattern pat and returns the latest
 // mtime of them all.
-func latestMtime(pat string) (time.Time, error) {
-	names, err := filepath.Glob(pat)
+func latestMtime(fsys fs.FS, pat string) (time.Time, error) {
+	names, err := fs.Glob(fsys, pat)
 	if err != nil {
 		return time.Time{}, err
 	}
 	var mtime time.Time
 	for _, name := range names {
-		fi, err := os.Stat(name)
+		fi, err := fs.Stat(fsys, name)
 		if err != nil {
 			return time.Time{}, err
 		}
