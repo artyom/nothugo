@@ -499,7 +499,7 @@ Run with -h flag to see full help text.
 
 func init() {
 	flag.Usage = func() {
-		fmt.Fprintln(flag.CommandLine.Output(), usage)
+		fmt.Fprint(flag.CommandLine.Output(), usage)
 		fmt.Fprintf(flag.CommandLine.Output(), "Flags are:\n\n")
 		flag.PrintDefaults()
 	}
